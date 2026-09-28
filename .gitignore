@@ -16,9 +16,20 @@
 # next.js
 /.next/
 /out/
+/scripts/
+/supabase/
+
+yolov8n.pt
 
 # production
 /build
+
+__pycache__*
+
+# backend
+
+/backend/__pycache__
+/backend/.venv
 
 # misc
 .DS_Store
@@ -35,6 +46,7 @@ yarn-error.log*
 
 # vercel
 .vercel
+/.kiro/
 
 # typescript
 *.tsbuildinfo
