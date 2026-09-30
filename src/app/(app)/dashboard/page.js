@@ -129,10 +129,7 @@ export default function DashboardPage() {
           </span>
         </div>
 
-        {/* Prototype badge */}
-        <div className="ml-auto bg-yellow-100 dark:bg-yellow-900/40 border border-yellow-300 dark:border-yellow-700 rounded-xl px-2.5 py-1.5 pointer-events-none">
-          <span className="text-[10px] font-semibold text-yellow-700 dark:text-yellow-400">⚠ Prototype · Simulated Data</span>
-        </div>
+        
       </div>
 
       {/* ── Nearest Signal HUD (bottom-left) ──────────────────────────── */}
@@ -193,28 +190,6 @@ export default function DashboardPage() {
           onClose={() => setActivePanel(PANELS.none)}
         />
       )}
-
-      {/* ── Bottom action bar ─────────────────────────────────────────── */}
-      <div className="absolute bottom-3 right-3 z-[1000] flex flex-col gap-2">
-        <Link
-          href="/analytics"
-          className="flex items-center gap-1.5 bg-white dark:bg-zinc-900 rounded-xl shadow-lg px-3 py-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-        >
-          📊 Analytics
-        </Link>
-        <Link
-          href="/incidents"
-          className="flex items-center gap-1.5 bg-white dark:bg-zinc-900 rounded-xl shadow-lg px-3 py-2 text-xs font-semibold text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors"
-        >
-          ⚠ Report
-        </Link>
-        <Link
-          href="/sos"
-          className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 rounded-xl shadow-lg px-3 py-2 text-xs font-semibold text-white transition-colors"
-        >
-          🆘 SOS
-        </Link>
-      </div>
 
       {/* Loading overlay */}
       {dataLoading && (
@@ -352,7 +327,7 @@ function ParkingPanel({ lot, onClose }) {
         <span className="text-zinc-400">Score: {lot.score}/100</span>
       </div>
 
-      <p className="text-[10px] text-zinc-400 italic">⚠ Availability is simulated prototype data.</p>
+      
 
       <Link
         href="/parking"

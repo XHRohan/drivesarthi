@@ -59,11 +59,7 @@ export default function Sidebar({ open, onClose }) {
           <span className="text-blue-600 font-bold text-lg tracking-tight">DriveSarthi</span>
         </div>
         {navLinks}
-        <div className="px-4 py-3 border-t border-zinc-200 dark:border-zinc-800 shrink-0">
-          <p className="text-[10px] text-zinc-400 dark:text-zinc-600 text-center">
-            Prototype · Synthetic data only
-          </p>
-        </div>
+        
       </aside>
 
       {/* ── Mobile drawer overlay ── */}
