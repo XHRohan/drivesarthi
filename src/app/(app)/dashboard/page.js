@@ -6,10 +6,10 @@ import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { getCurrentPosition, haversineKm, formatDistance } from '@/lib/geo'
-import { computeSignalState, PHASE_COLOURS, phaseLabel, estimatedWaitSeconds } from '@/lib/signalHelpers'
+import { computeSignalState, PHASE_COLOURS, phaseLabel, estimatedWaitSeconds, recommendedSpeed } from '@/lib/signalHelpers'
 import { enrichAndRankLots, availabilityBadge } from '@/lib/parkingHelpers'
 
-// ── Map loaded client-side only (Leaflet needs window) ────────────────────────
+// ── Map loaded client-side only ──────────────────────────────────────────────
 const LiveMap = dynamic(() => import('@/components/map/LiveMap'), { ssr: false })
 
 // ── Default location: ABESIT Engineering College, Ghaziabad ──────────────────
@@ -18,6 +18,11 @@ const ABESIT_ZOOM = 14
 
 // ── HUD panel state ───────────────────────────────────────────────────────────
 const PANELS = { signal: 'signal', parking: 'parking', none: 'none' }
+
+// Road speed limits keyed by road_id from seed data
+const SPEED_LIMITS = {
+  RD001: 80, RD002: 60, RD003: 50, RD004: 40, RD005: 40,
+}
 
 export default function DashboardPage() {
   const { user } = useAuth()
@@ -34,6 +39,8 @@ export default function DashboardPage() {
   const [selectedSignal, setSelectedSignal] = useState(null)
   const [selectedParking, setSelectedParking] = useState(null)
   const [tick, setTick] = useState(0)
+  // Imperative ref: LiveMap calls this to expose its flyTo function
+  const flyToRef = useRef(null)
 
   // 1-second tick for live signal countdown
   useEffect(() => {
@@ -84,12 +91,28 @@ export default function DashboardPage() {
     setSelectedSignal(withState)
     setSelectedParking(null)
     setActivePanel(PANELS.signal)
+    // Fly map to signal
+    flyToRef.current?.({ lng: sig.lng, lat: sig.lat, zoom: 17 })
   }
 
   function handleParkingClick(lot) {
     setSelectedParking(lot)
     setSelectedSignal(null)
     setActivePanel(PANELS.parking)
+    // Fly map to parking lot
+    flyToRef.current?.({ lng: lot.lng, lat: lot.lat, zoom: 17 })
+  }
+
+  // Called when HUD "Next Signal" card is clicked
+  function handleNearestSignalHUD() {
+    if (!nearestSignal) return
+    handleSignalClick(nearestSignal)
+  }
+
+  // Called when HUD "Best Parking" card is clicked
+  function handleBestParkingHUD() {
+    if (!bestParking) return
+    handleParkingClick(bestParking)
   }
 
   return (
@@ -97,7 +120,8 @@ export default function DashboardPage() {
 
       {/* ── Full-screen map ────────────────────────────────────────────── */}
       <LiveMap
-        userPos={userPos}
+        userPos={userPos ?? ABESIT}
+        isDefaultPos={!userPos}
         defaultCenter={ABESIT}
         defaultZoom={ABESIT_ZOOM}
         signals={signalsWithDist}
@@ -105,6 +129,7 @@ export default function DashboardPage() {
         onSignalClick={handleSignalClick}
         onParkingClick={handleParkingClick}
         tick={tick}
+        flyToRef={flyToRef}
       />
 
       {/* ── Top HUD bar ───────────────────────────────────────────────── */}
@@ -125,7 +150,7 @@ export default function DashboardPage() {
             <span className="w-2 h-2 rounded-full bg-zinc-400" />
           )}
           <span className="text-xs text-zinc-600 dark:text-zinc-300">
-            {locating ? 'Locating…' : userPos ? 'Live GPS' : 'Default: ABESIT'}
+            {locating ? 'Locating…' : userPos ? 'Live GPS' : '📍 ABESIT (demo)'}
           </span>
         </div>
 
@@ -135,7 +160,7 @@ export default function DashboardPage() {
       {/* ── Nearest Signal HUD (bottom-left) ──────────────────────────── */}
       {nearestSignal && (
         <button
-          onClick={() => handleSignalClick(nearestSignal)}
+          onClick={handleNearestSignalHUD}
           className="absolute bottom-36 left-3 z-[1000] bg-white dark:bg-zinc-900 rounded-2xl shadow-xl px-4 py-3 w-56 text-left hover:ring-2 hover:ring-blue-400 transition-all"
         >
           <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-1">Next Signal</p>
@@ -160,7 +185,7 @@ export default function DashboardPage() {
       {/* ── Best Parking HUD (bottom-left, below signal) ──────────────── */}
       {bestParking && (
         <button
-          onClick={() => handleParkingClick(bestParking)}
+          onClick={handleBestParkingHUD}
           className="absolute bottom-16 left-3 z-[1000] bg-white dark:bg-zinc-900 rounded-2xl shadow-xl px-4 py-3 w-56 text-left hover:ring-2 hover:ring-blue-400 transition-all"
         >
           <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide mb-1">Best Parking</p>
@@ -207,13 +232,27 @@ export default function DashboardPage() {
 // ── SignalPanel ───────────────────────────────────────────────────────────────
 function SignalPanel({ sig, tick, onClose }) {
   const state = computeSignalState(sig)
-  const c = PHASE_COLOURS[state.phase]
-  const wait = estimatedWaitSeconds(state)
+  const c     = PHASE_COLOURS[state.phase]
+  const wait  = estimatedWaitSeconds(state)
 
-  const radius = 28
-  const circ   = 2 * Math.PI * radius
-  const phaseTotal = state.phase === 'green' ? state.greenSeconds : state.phase === 'yellow' ? state.yellowSeconds : state.redSeconds
-  const dashArr = circ * Math.max(0, state.secondsRemaining / phaseTotal)
+  // Speed recommendation — capped to road limit and never below 15 km/h
+  const speedLimit  = SPEED_LIMITS[sig.road_id] ?? 50
+  const distKm      = sig.distance_km ?? 0
+  const rawSpeed    = recommendedSpeed(distKm, state, speedLimit)
+  // Safety: clamp to [15, speedLimit], and only show if distance is meaningful
+  const safeSpeed   = rawSpeed.recommendedSpeed
+    ? Math.min(Math.max(rawSpeed.recommendedSpeed, 15), speedLimit)
+    : null
+  const speedAdvice = distKm < 0.05
+    ? 'You are at the signal.'
+    : rawSpeed.advice
+
+  const radius    = 28
+  const circ      = 2 * Math.PI * radius
+  const phaseTotal = state.phase === 'green' ? state.greenSeconds
+                   : state.phase === 'yellow' ? state.yellowSeconds
+                   : state.redSeconds
+  const dashArr   = circ * Math.max(0, state.secondsRemaining / phaseTotal)
 
   return (
     <div className="absolute top-16 right-3 z-[1001] w-72 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl p-4 space-y-3">
@@ -221,9 +260,9 @@ function SignalPanel({ sig, tick, onClose }) {
         <div>
           <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">Signal</p>
           <p className="text-sm font-bold text-zinc-900 dark:text-white leading-tight mt-0.5">{sig.location_name}</p>
-          <p className="text-xs text-zinc-400">{sig.road_name} · {formatDistance(sig.distance_km)}</p>
+          <p className="text-xs text-zinc-400">{sig.road_name} · {formatDistance(sig.distance_km ?? 0)}</p>
         </div>
-        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-white p-1">✕</button>
+        <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-white p-1 text-lg leading-none">✕</button>
       </div>
 
       {/* Countdown ring */}
@@ -261,12 +300,36 @@ function SignalPanel({ sig, tick, onClose }) {
         </div>
       </div>
 
+      {/* ── Recommended speed box ── */}
+      {distKm > 0.05 && safeSpeed && (
+        <div className={`rounded-xl px-3 py-2.5 border ${
+          state.phase === 'green'
+            ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
+            : 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800'
+        }`}>
+          <p className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-0.5">
+            Recommended Speed
+          </p>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-2xl font-black text-zinc-900 dark:text-white">{safeSpeed}</span>
+            <span className="text-sm font-semibold text-zinc-500">km/h</span>
+            {safeSpeed < speedLimit && (
+              <span className="ml-auto text-[10px] font-medium text-zinc-400">limit {speedLimit} km/h</span>
+            )}
+          </div>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-tight">{speedAdvice}</p>
+        </div>
+      )}
+      {distKm <= 0.05 && (
+        <p className="text-xs text-zinc-400 text-center">You are at the signal.</p>
+      )}
+
       {/* Timing bar */}
       <div>
         <div className="flex gap-1 h-2 rounded-full overflow-hidden">
-          <div className="bg-green-500 rounded-full"  style={{ width: `${(state.greenSeconds/state.cycleSeconds)*100}%` }} />
+          <div className="bg-green-500 rounded-full"  style={{ width: `${(state.greenSeconds /state.cycleSeconds)*100}%` }} />
           <div className="bg-yellow-400 rounded-full" style={{ width: `${(state.yellowSeconds/state.cycleSeconds)*100}%` }} />
-          <div className="bg-red-500 rounded-full"    style={{ width: `${(state.redSeconds/state.cycleSeconds)*100}%` }} />
+          <div className="bg-red-500 rounded-full"    style={{ width: `${(state.redSeconds   /state.cycleSeconds)*100}%` }} />
         </div>
         <div className="flex gap-3 text-[10px] text-zinc-400 mt-1">
           <span>🟢 {state.greenSeconds}s</span>

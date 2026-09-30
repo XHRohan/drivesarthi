@@ -303,10 +303,11 @@ class TiltResetControl {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function LiveMap({
-  userPos, defaultCenter, defaultZoom,
+  userPos, isDefaultPos = false, defaultCenter, defaultZoom,
   signals, parkingLots,
   onSignalClick, onParkingClick,
   tick,
+  flyToRef,
 }) {
   const containerRef = useRef(null)
   const mapRef       = useRef(null)
@@ -362,6 +363,14 @@ export default function LiveMap({
 
     map.on('load', () => {
       readyRef.current = true
+
+      // Expose flyTo to parent via ref so HUD buttons can centre the map
+      if (flyToRef) {
+        flyToRef.current = ({ lat, lng, zoom = 17 }) => {
+          map.flyTo({ center: [lng, lat], zoom, duration: 900, essential: true })
+        }
+      }
+
       rebuildSignalMarkers(map, sigDataRef.current)
       rebuildParkingMarkers(map, parkDataRef.current)
     })
@@ -479,13 +488,22 @@ export default function LiveMap({
 
     if (!centeredRef.current) {
       centeredRef.current = true
+      if (!isDefaultPos) {
+        map.flyTo({
+          center: [userPos.lng, userPos.lat], zoom: 16,
+          pitch: 50, bearing: userPos.heading ?? 0,
+          duration: 1600, essential: true,
+        })
+      }
+    } else if (!isDefaultPos) {
+      // GPS arrived after the default position was already shown — fly to real location
       map.flyTo({
         center: [userPos.lng, userPos.lat], zoom: 16,
         pitch: 50, bearing: userPos.heading ?? 0,
         duration: 1600, essential: true,
       })
     }
-  }, [userPos])
+  }, [userPos, isDefaultPos])
 
   return <div ref={containerRef} className="w-full h-full" />
 }
